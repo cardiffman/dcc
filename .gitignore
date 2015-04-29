@@ -1,0 +1,8 @@
+.cproject
+.ninja*
+.project
+CMakeCache.txt
+*.stackdump
+build.ninja
+rules.ninja
+cmake_install.cmake

@@ -1,0 +1,11 @@
+True x y = x;
+False x y = y;
+ifthenelse x y z = x y z;
+and x y = x y False;
+or x y = True y;
+not x = x False True;
+--# Since a boolean is going to be built-in
+--# 'true' and 'false' are reserved.
+main = ifthenelse False 100 500;
+
+

@@ -1,0 +1,6 @@
+fact n = if (small n) 1 (next n);
+    next n = * n (fact (n2 n));
+    n2 n = - n 1;
+    small n = < n 2;
+
+main = fact 15.0;

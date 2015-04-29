@@ -1,0 +1,9 @@
+fact n = 
+    let 
+        n2=- n 1; 
+        in let
+          next = * n (fact n2); 
+          small = < n 2; 
+          in 
+            if small 1 next;
+main = fact 15.0;

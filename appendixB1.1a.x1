@@ -1,0 +1,4 @@
+I x = x;
+K x y = x;
+S f g x = (f x) g x;
+main = I 3;

@@ -1,0 +1,204 @@
+-- Unit type
+unit u = u
+
+-- Boolean
+false f t = f
+true  f t = t
+if cond then else = cond else then
+
+not = flip
+
+and x y = x false y
+or  x y = x y true
+
+-- Maybe
+none   n j = n
+just x n j = j x
+maybe d f m = m d f
+
+mbind m f = m none f
+
+-- Nat
+zero   z s = z
+succ k z s = s k
+
+pred k = k none just
+
+plus  x y = y x (plus (succ x));
+minus x y = y (just x) (minus_case_succ x);
+  minus_case_succ x y' = x none (flip minus y');
+
+eq x y = maybe false eq_case_just (minus x y);
+  eq_case_just d = d true (const false);
+
+lt x y = maybe true (const false) (minus x y);
+ge x y = not (lt x y);
+gt = flip lt;
+le = flip ge;
+
+mult x y = y 0 (chain (plus x) (mult x));
+
+-- XXX divmod x 0 = nontermination
+divmod x p = minus x p (pair 0 x) (divmod_case_just p);
+  divmod_case_just p x' = divmod x' p divmod_case_pair;
+  divmod_case_pair q r = pair (succ q) r;
+
+-- List
+nil       n c = n;
+cons x xs n c = c x xs;
+
+isnil xs = xs true (const (const false));
+
+map f = fold (chain cons f) nil;
+
+fold f z xs = xs z (fold_case_cons f z);
+  fold_case_cons f z x xs' = f x (fold f z xs');
+foldl f z xs = xs z (chain (foldl f) (f z));
+
+filter f xs = xs xs (filter_case_cons f);
+  filter_case_cons f x xs' = f x xs' (cons x (filter f xs'));
+
+length = fold (const succ) 0;
+
+cat xs ys = fold cons ys xs;
+
+join sep = fold (join_1 sep) nil;
+  join_1 sep x xs = if (isnil xs) x (cat (cat x sep) xs);
+
+concat = fold cat nil;
+concatmap f = chain concat (map f);
+
+replicate n x = n nil (chain (cons x) (flip replicate x));
+
+reverse = foldl (flip cons) nil;
+
+any p = fold (chain or p) false;
+all p = fold (chain and p) true;
+
+in x = any (eq x);
+
+find eq x = fold (find_step eq x) none;
+  find_step eq x y mi = if (eq x y) (just 0) (maybe none (chain just succ) mi);
+
+eq_list eq xs ys = xs (isnil ys) (eq_list_case_cons eq ys);
+  eq_list_case_cons eq ys x xs_ = ys false (eq_list_case_cons_cons eq x xs_);
+  eq_list_case_cons_cons eq x xs_ y ys_ = and (eq x y) (eq_list eq xs_ ys_);
+eq_str = eq_list eq;
+
+-- Pair
+pair x y p = p x y;
+fst xy = xy fst_case_pair;
+  fst_case_pair x y = x;
+snd xy = xy snd_case_pair;
+  snd_case_pair x y = y;
+
+-- misc
+id x = x;
+const x y = x;
+flip f x y = f y x;
+chain f g x = f (g x);
+
+uncurry f xy = xy f;
+curry f x y = f (pair x y);
+
+sap f x = seq x (f x);          -- force strict application
+    -- NB: Interestingly 'sap' can also be used to _delay_ evaluation of 'f',
+    -- like this:
+    --     foo (sap f)
+    -- The above is equivalent to 'foo f' but does not evaluate 'f' until it is
+    -- applied to an argument.
+-- seq = builtin
+
+-- Characters
+ch xs = xs 255 const;  -- string head XXX a hack until we have char literals
+
+isalpha c = or (and (gt c 64) (lt c 91)) (and (gt c 96) (lt c 123))
+isdigit c = and (ge c 48) (lt c 58)
+isalnum c = or (isalpha c) (isdigit c)
+isprint c = and (ge c 32) (lt c 127)
+isspace c = in c " \t\f\v\r\n"
+
+-- Show/Read
+showstr s = cat (cat "\"" (concatmap showstr_esc s)) "\""
+  showstr_esc c = (if (isprint c)      (cons c nil)
+                   (if (eq c (ch "\\")) "\\\\"
+                   (if (eq c (ch "\"")) "\\\""
+                   (if (eq c (ch "\a")) "\\a"
+                   (if (eq c (ch "\b")) "\\b"
+                   (if (eq c (ch "\t")) "\\t"
+                   (if (eq c (ch "\n")) "\\n"
+                   (if (eq c (ch "\v")) "\\v"
+                   (if (eq c (ch "\f")) "\\f"
+                   (if (eq c (ch "\r")) "\\r"
+                   (if (eq c (ch "\e")) "\\e"
+                       (cat "\\" (showoct c)))))))))))));
+
+shownum = shownum_ 10;
+showoct = shownum_ 8;
+shownum_ base = chain reverse (shownum_le base);
+  shownum_le b n        = divmod n b (shownum_le_pair b);
+  shownum_le_pair b q r = cons (shownum_le_1 r) (q "" (const (shownum_le b q)));
+  shownum_le_1 d        = plus (ch "0") d;
+
+readnum = foldl readnum_f 0;
+  readnum_f acc digit = plus (mult acc 10) (atoi digit);
+atoi d = maybe 0 id (minus d (ch "0"));
+
+-- IO
+--
+-- Internally, actions are represented by combinators that execute the action
+-- upon evaluation. In order to control the time of evaluation, they take an
+-- extra dummy argument.
+--
+-- In Haskell types:
+--     type IO_internal a = () -> a
+--
+-- Execution of a combinator occurs only when all arguments have been applied.
+--
+-- The intention is, of course, that IO be opaque, i.e.:
+--     newtype IO a = IO (() -> a)
+--
+-- Therefore we wrap the internal type in something akin to a Scott-encoded
+-- ADT. This also solves the question how to put built-ins in scope.
+--
+-- An IO action is a function that takes, for each "constructor" (= primitive),
+-- an argument to be used where that primitive appears in the resulting term.
+-- The built-in primitives are injected by passing them to 'main'.
+--
+-- Bind and return can be implemented outside the compiler by taking advantage
+-- of evaluation order (note strict application in 'bind' below).
+bind m f  g p dummy = sap f (m g p dummy) g p dummy;
+return x  g p dummy = x;
+getbyte fd   g p = g fd;
+putbyte fd x g p = p fd x;
+
+-- Monad utils
+bind_ a b = bind a (const b);
+lift f m = bind m (chain return f);
+
+mapM_ f xs = sequence_ (map f xs);
+mapM f xs = sequence (map f xs);
+
+sequence_ ms = ms (return unit) sequence__case_cons;
+  sequence__case_cons m ms' = bind_ m (sequence_ ms');
+
+sequence ms = ms (return nil) sequence_case_cons;
+  sequence_case_cons m ms' = bind m (sequence_1 ms');
+  sequence_1 ms' x = lift (cons x) (sequence ms');
+
+when b m = if b (lift just m) (return none);
+unless b = when (not b);
+
+-- standard file descriptors
+stdin  = 0;
+stdout = 1;
+stderr = 2;
+
+-- String IO
+-- XXX This interface is placeholder until iteratees.
+putc = putbyte;  -- meant to be ASCII only (TODO: extend to UTF8)
+getc = getbyte;  -- meant to be ASCII only (TODO: extend to UTF8)
+
+fputs fd s = bind_ (mapM_ (putc fd) s) (putc fd (ch "\n"));
+puts  = fputs stdout;
+eputs = fputs stderr;
