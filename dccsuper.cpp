@@ -506,13 +506,21 @@ struct Constructor {
 	string constructor;
 	vector <string> arguments;
 	ostream& print(ostream& out) const;
-	void output_function_prototype(ostream& out, const string& id) const {}
+	void output_function_prototype(ostream& out, const string& id) const;
+	void output_function_heading(ostream& out, const string& id) const;
+	void output_function_info(ostream& out, const string& id) const;
 };
+ostream& operator<<(ostream& out, const Constructor& constructor)
+{
+	return constructor.print(out);
+}
 struct Type : public Defineable {
 	vector <string> arguments;
 	vector <Constructor> constructors;
 	ostream& print(ostream& out) const;
-	void output_function_prototype(ostream& out, const string& id) const {}
+	void output_function_prototype(ostream& out, const string& id) const;
+	void output_function_info(ostream& out, const string& id) const;
+	void output_function_definition(ostream& out, const string& id) const;
 };
 struct Function : public Defineable {
 	vector<string> arguments;
@@ -551,9 +559,62 @@ ostream& Function::print(ostream& out) const
 	out << *body;
 	return out;
 }
+ostream& Constructor::print(ostream& out) const
+{
+	out << constructor;
+	for (auto argument : arguments)
+		out << ' ' << argument;
+	return out;
+}
 ostream& Type::print(ostream& out) const
 {
+	auto iargs = arguments.begin();
+	while (iargs != arguments.end())
+		out << ' ' << *iargs++;
+	out << '=';
+	auto ictors = constructors.begin();
+	if (ictors != constructors.end())
+	{
+		out << *ictors++ << endl;
+		for (; ictors != constructors.end(); ++ictors)
+			out << "  | " << *ictors << endl;
+	}
 	return out;
+}
+void Constructor::output_function_heading(ostream& out, const string& id) const
+{
+	out << "void ctor_" << constructor << ' ';
+	out << "(comp_t** result, comp_t** args) /*";
+	for (auto arg : arguments)
+		out << arg << " ";
+	out << "*/";
+}
+void Constructor::output_function_info(ostream& out, const string& id) const
+{
+	out << "comp_t sc_" << id << " = { ctor_" << constructor << ", " << arguments.size() << "};" << endl;
+}
+void Type::output_function_prototype(ostream& out, const string& id) const
+{
+	for (auto ctor : constructors)
+	{
+		ctor.output_function_heading(out, ctor.constructor);
+		out << ';' << endl;
+	}
+}
+void Type::output_function_definition(ostream& out, const string& id) const
+{
+	for (auto ctor : constructors)
+	{
+		ctor.output_function_heading(out, ctor.constructor);
+		out << endl;
+	}
+}
+void Type::output_function_info(ostream& out, const string& id) const
+{
+	for (auto ctor : constructors)
+	{
+		ctor.output_function_info(out, ctor.constructor);
+	}
 }
 void Function::output_function_heading(ostream& out, const string& id) const
 {
@@ -630,9 +691,15 @@ Var* parse_var(Parser& parser, istream& in)
 	}
 	return nullptr;
 }
-Node* parse_con(Parser& parser, istream& in)
+Var* parse_con(Parser& parser, istream& in)
 {
-	return nullptr; // we know what they look like but can't use constructors
+	if (parser.token.type == TT_CONID)
+	{
+		Var* var = new Var(parser.token.text);
+		parser.next(in);
+		return var;
+	}
+	return nullptr;
 }
 Node* parse_literal(Parser& parser, istream& in)
 {
@@ -711,6 +778,8 @@ Var* parse_apat(Parser& parser, istream& in)
  *        | literal
  *        | '(' exp ')'
  *        # This is where syntax sugar for tuples and lists goes too.
+ * alts = alt ( ';' alt )*
+ * alt = pat -> exp whereclause?
  * qvar = qvarid
  * qvarid = qual? varid
  * qual = modid '.' # That is, a qualifier is a string of conids with periods. Prelude.Data.
@@ -768,11 +837,53 @@ Node* parse_expr(Parser& parser, istream& in)
 	application->arguments = arguments;
 	return application;
 }
-Definition* parse_definition(Parser& parser, istream& in)
+Definition* parse_data(Parser& parser, istream& in)
+{
+	parser.next(in);
+	Var* type_name = parse_con(parser, in);
+	if (type_name == nullptr)
+		throw Error(line_number, "expecting conid");
+	Definition* definition = new Definition();
+	definition->id = type_name->id;
+	Type* type = new Type();
+	while (parser.token.text != "=")
+	{
+		Var* arg = parse_apat(parser,in);
+		type->arguments.push_back(arg->id);
+	}
+	parser.next(in);
+	while (parser.token.type != TT_SEMI)
+	{
+		Var* conid = parse_con(parser,in);
+		Constructor* ctor = new Constructor();
+		ctor->constructor = conid->id;
+		while (parser.token.type != TT_SEMI && parser.token.text != "|")
+		{
+			Var* apat = parse_apat(parser, in);
+			ctor->arguments.push_back(apat->id);
+		}
+		type->constructors.push_back(*ctor);
+		if (parser.token.text == "|")
+		{
+			parser.next(in);
+		}
+		else
+		{
+			break;
+		}
+	}
+	parser.next(in);
+	cout << "Type " << *type << endl;
+	definition->defineable = type;
+	cout << "Defined: " << definition->id << endl;
+	return definition;
+	//throw Error(line_number, "data keyword not implemented");
+}
+Definition* parse_function(Parser& parser, istream& in)
 {
 	Var* name = parse_var(parser,in);
 	if (name == nullptr)
-		throw Error(line_number,"expecting varid");
+		throw Error(line_number,"expecting varid (884)");
 	Definition* definition = new Definition();
 	definition->id = name->id;
 	Function* function = new Function();
@@ -791,6 +902,13 @@ Definition* parse_definition(Parser& parser, istream& in)
 	definition->defineable = function;
 	cout << "Defined: " << definition->id << endl;
 	return definition;
+}
+Definition* parse_definition(Parser& parser, istream& in)
+{
+	if (parser.token.type == TT_DATA)
+		return parse_data(parser, in);
+	else
+		return parse_function(parser, in);
 }
 typedef list<Definition*> Definitions;
 Definitions parse_definitions(Parser& parser, istream& in)
