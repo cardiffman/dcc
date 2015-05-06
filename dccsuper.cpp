@@ -11,6 +11,7 @@
 #include <list>
 #include <algorithm>
 #include <stdlib.h>
+#include <string.h>
 
 using namespace std;
 static vector<int> indented;
@@ -675,22 +676,41 @@ Definitions parse_definitions(Parser& parser, istream& in)
 }
 int main(int argc, char** argv)
 {
+	const char* input = argv[1];
+	bool tokenTest = false;
+	bool showDefinitions = false;
+	for (int i = 1; i<argc; ++i)
+	{
+		if (strcmp(argv[i],"--tokenTest")==0)
+			tokenTest = true;
+		else if (strcmp(argv[i],"--showDefinitions")==0)
+			showDefinitions = true;
+		else if (argv[i][0]=='-' && argv[i][1]=='-')
+			continue;
+		else
+			input = argv[i];
+	}
 	std::fstream file;
-	file.open(argv[1], std::ios::binary | std::fstream::in);
+	file.open(input, std::ios::binary | std::fstream::in);
 	Parser parser;
 
 	try {
-#if 1
-		parser.next(file);
-		Definitions definitions = parse_definitions(parser, file);
-		for (auto definition : definitions)
-			cout << *definition << endl;
-#else
-		do {
+		if (tokenTest)
+		{
+			do {
+				parser.next(file);
+				cout << parser.token << endl;
+			} while (parser.token.type != TT_EOF);
+		}
+		else
+		{
 			parser.next(file);
-			cout << parser.token << endl;
-		} while (parser.token.type != TT_EOF);
-#endif
+			Definitions definitions = parse_definitions(parser, file);
+			if (showDefinitions)
+				for (auto definition : definitions)
+					cout << *definition << endl;
+			output_code(definitions);
+		}
 	}
 	catch (const Error& error)
 	{
