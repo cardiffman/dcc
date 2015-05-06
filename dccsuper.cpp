@@ -46,7 +46,7 @@ ostream& Token::print(ostream& out) const
 	out << type;
 	switch (type)
 	{
-	case TT_VARID: case TT_CONID: case TT_STRING: case TT_OPER: case TT_SEMI:
+	case TT_VARID: case TT_CONID: case TT_STRING: case TT_OPER:
 		out << ' ' << text;
 		break;
 	case TT_INTEGER:
