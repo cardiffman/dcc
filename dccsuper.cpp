@@ -695,15 +695,12 @@ int main(int argc, char** argv)
 	Parser parser;
 
 	try {
-		if (tokenTest)
-		{
+		if (tokenTest) {
 			do {
 				parser.next(file);
 				cout << parser.token << endl;
 			} while (parser.token.type != TT_EOF);
-		}
-		else
-		{
+		} else {
 			parser.next(file);
 			Definitions definitions = parse_definitions(parser, file);
 			if (showDefinitions)
