@@ -562,6 +562,21 @@ Var* parse_apat(Parser& parser, istream& in)
  * Let's go to the Haskell reference to be consistent
  * and avoid unnecessary deviation.
  *
+ * topdecl = data simpletype [ '=' constrs][deriving]
+ *         | decl
+ * simpletype = tycon tyvar*
+ * constrs = constr ('|' constr)*
+ * constr = con atype*
+ *          | btype conop btype
+ *          | con '{' fielddecl* '}'
+ * fielddecl = vars '::' type
+ * tycon = conid
+ * tyvar = varid
+ * btype = btype? atype
+ * atype = gtycon | tyvar
+ * gtycon = qtycon
+ * qtycon = qual? tycon
+ * conop = consym | `conid`
  * decl = funlhs rhs
  * funlhs = var apat+
  *        | pat varop pat
