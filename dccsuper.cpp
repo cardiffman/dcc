@@ -638,7 +638,7 @@ Definition* parse_definition(Parser& parser, istream& in)
 	parser.next(in);
 	Node* expr = parse_expr(parser, in);
 	if (parser.token.type != TT_SEMI)
-		throw "semicolon expected";
+		throw Error(line_number,"semicolon expected");
 	parser.next(in);
 	definition->body = expr;
 	cout << "Defined: " << definition->id << endl;
