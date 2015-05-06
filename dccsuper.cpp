@@ -452,19 +452,36 @@ struct Operator : Node {
 	ostream& print(ostream& out) const { return out << id; }
 };
 struct Apply : Node {
+	// In many implementations of such things, an Apply node
+	// is a pair. But the supercombinator code will want to
+	// recover the arity of the (partial at times) application,
+	// so we may as well retain it.
 	Node* to_apply;
 	vector<Node*> arguments;
+	// For printing, if any of our entities is itself an application,
+	// print parens around it.
+	static ostream& print_bracketed(ostream& out, const Node* term)
+	{
+		bool paren = dynamic_cast<const Apply*>(term) != nullptr;
+		if (paren) out << '(';
+		out << *term;
+		if (paren) out << ')';
+		return out;
+	}
 	ostream& print(ostream& out) const
 	{
-		out << *to_apply;
+		print_bracketed(out, to_apply);// out << *to_apply;
 		auto iarg = arguments.begin();
 		for (;iarg != arguments.end();)
 		{
 			out << ' ';
+			print_bracketed(out, *iarg); iarg++;
+#if 0
 			bool paren = dynamic_cast<Apply*>(*iarg) != nullptr;
-			if (paren) cout << '(';
+			if (paren) out << '(';
 			out << **iarg; iarg++;
-			if (paren) cout << ')';
+			if (paren) out << ')';
+#endif
 		}
 		return out;
 	}
