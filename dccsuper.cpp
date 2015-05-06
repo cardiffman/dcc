@@ -17,7 +17,7 @@ using namespace std;
 static vector<int> indented;
 
 enum TokenType {
-	TT_VARID, TT_CONID, TT_INTEGER, TT_DOUBLE, TT_STRING, TT_OPER,
+	TT_VARID, TT_CONID, TT_INTEGER, TT_DOUBLE, TT_STRING, TT_OPER, TT_DATA,
 	TT_LPAREN, TT_RPAREN,
 	TT_SEMI, TT_INDENT, TT_OUTDENT,
 	TT_EOF
@@ -25,7 +25,7 @@ enum TokenType {
 const char* TokenTypeStr[] =
 {
 	"TT_VARID", "TT_CONID", "TT_INTEGER", "TT_DOUBLE", "TT_STRING", "TT_OPER",
-	"TT_LPAREN", "TT_RPAREN",
+	"TT_LPAREN", "TT_RPAREN", "TT_DATA",
 	"TT_SEMI", "TT_INDENT", "TT_OUTDENT",
 	"TT_EOF"
 };
@@ -328,6 +328,8 @@ Token getToken(istream& in)
 		else
 			id = Token(TT_VARID);
 		id.text = lastline.substr(0,nname);
+		if (id.text == "data")
+			id = Token(TT_DATA);
 		lastline.erase(0,nname);
 		return id;
 	}
