@@ -427,6 +427,7 @@ struct Parser {
 };
 struct Node {
 	virtual ostream& print(ostream& out) const { return out; }
+	virtual int output_computation(ostream& out, int n, const vector<string>& env) { return n; }
 	virtual ~Node() {}
 };
 ostream& operator<<(ostream& out, const Node& node)
@@ -437,16 +438,19 @@ struct Num : Node {
 	Num(int ivalue) : value(ivalue) {}
 	Num(double dvalue) : value(dvalue) {}
 	ostream& print(ostream& out) const { return out << value; }
+	int output_computation(ostream& out, int n, const vector<string>& env);
 	double value;
 };
 struct Var : Node {
 	Var(const string& id) : id(id) {}
 	ostream& print(ostream& out) const { return out << id; }
+	int output_computation(ostream& out, int n, const vector<string>& env);
 	string id;
 };
 struct Str : Node {
 	Str(const string& text) : text(text) {}
 	ostream& print(ostream& out) const { return out << '"' <<  text << '"'; }
+	int output_computation(ostream& out, int n, const vector<string>& env);
 	string text;
 };
 struct Operator : Node {
@@ -471,6 +475,7 @@ struct Apply : Node {
 		if (paren) out << ')';
 		return out;
 	}
+	int output_computation(ostream& out, int n, const vector<string>& env);
 	ostream& print(ostream& out) const
 	{
 		print_bracketed(out, to_apply);// out << *to_apply;
@@ -489,12 +494,44 @@ struct Apply : Node {
 		return out;
 	}
 };
-struct Definition {
-	string id;
+class Defineable {
+public:
+	virtual ~Defineable() {}
+	virtual ostream& print(ostream& out) const = 0;
+	virtual void output_function_prototype(ostream& out, const string& id) const = 0;
+	virtual void output_function_info(ostream& out, const string& id) const = 0;
+	virtual void output_function_definition(ostream& out, const string& id) const = 0;
+};
+struct Constructor {
+	string constructor;
+	vector <string> arguments;
+	ostream& print(ostream& out) const;
+	void output_function_prototype(ostream& out, const string& id) const {}
+};
+struct Type : public Defineable {
+	vector <string> arguments;
+	vector <Constructor> constructors;
+	ostream& print(ostream& out) const;
+	void output_function_prototype(ostream& out, const string& id) const {}
+};
+struct Function : public Defineable {
 	vector<string> arguments;
 	Node* body;
 	ostream& print(ostream& out) const;
+	void output_function_prototype(ostream& out, const string& id) const;
+	void output_function_heading(ostream& out, const string& id) const;
+	void output_function_info(ostream& out, const string& id) const;
+	void output_function_definition(ostream& out, const string& id) const;
 };
+struct Definition {
+	string id;
+	Defineable* defineable;
+	ostream& print(ostream& out) const;
+};
+ostream& operator<<(ostream& out, const Defineable& defineable)
+{
+	return defineable.print(out);
+}
 ostream& operator<<(ostream& out, const Definition& definition)
 {
 	return definition.print(out);
@@ -502,12 +539,86 @@ ostream& operator<<(ostream& out, const Definition& definition)
 ostream& Definition::print(ostream& out) const
 {
 	out << "Define " << id;
+	out << ' ' << *defineable;
+	return out;
+}
+ostream& Function::print(ostream& out) const
+{
 	auto iargs = arguments.begin();
 	while (iargs != arguments.end())
 		out << ' ' << *iargs++;
 	out << '=';
 	out << *body;
 	return out;
+}
+ostream& Type::print(ostream& out) const
+{
+	return out;
+}
+void Function::output_function_heading(ostream& out, const string& id) const
+{
+	out << "void fun_" << id << ' ';
+	out << "(comp_t** result, comp_t** args) /*";
+	for (auto arg : arguments)
+		out << arg << " ";
+	out << "*/";
+}
+void Function::output_function_info(ostream& out, const string& id) const
+{
+	out << "comp_t sc_" << id << " = { fun_" << id << ", " << arguments.size() << "};" << endl;
+}
+void Function::output_function_prototype(ostream& out, const string& id) const
+{
+	output_function_heading(out, id);
+	out << ';' << endl;
+}
+int Var::output_computation(ostream& out, int n, const vector<string>& env)
+{
+	auto lookup = find(env.begin(), env.end(), id);
+	if (lookup != env.end())
+	{
+		auto index = distance(env.begin(), lookup);
+		out << "    comp_t *e" << n << " = args[" << index << "]; /* " << id << "*/" << endl;
+	}
+	else
+	{
+		out << "    comp_t *e" << n << " = &sc_" << id << "; /* " << id << "*/" <<endl;
+	}
+	return n;
+}
+int Str::output_computation(ostream& out, int n, const vector<string>& env)
+{
+	out << "    comp_t *e" << n << " = str(\"" << text << "\");" << endl;
+	return n;
+}
+int Num::output_computation(ostream& out, int n, const vector<string>& env)
+{
+	out << "    *e" << n << " = num(" << value << ");" << endl;
+	return n;
+}
+int Apply::output_computation(ostream& out, int n, const vector<string>& env)
+{
+	vector<int> comps;
+	for (int i=0; i<arguments.size(); ++i)
+	{
+		n = arguments[i]->output_computation(out, n, env);
+		comps.push_back(n);
+		++n;
+	}
+	int nfunc = to_apply->output_computation(out, n, env);
+	out << "    *e" << n+1 << " = app(e" << nfunc << ", " << arguments.size();
+	for (auto comp : comps)
+		out << ", e" << comp;
+	out << ");" << endl;
+	return nfunc+1;
+}
+void Function::output_function_definition(ostream& out, const string& id) const
+{
+	output_function_heading(out, id);
+	out << "{" << endl;
+	int n = body->output_computation(out, 0, arguments);
+	out << "    *result = e" << n << ";" << endl;
+	out << "}" << endl;
 }
 Var* parse_var(Parser& parser, istream& in)
 {
@@ -664,18 +775,20 @@ Definition* parse_definition(Parser& parser, istream& in)
 		throw Error(line_number,"expecting varid");
 	Definition* definition = new Definition();
 	definition->id = name->id;
+	Function* function = new Function();
 	//cout << "after name " << parser.token.text << endl;
 	while (parser.token.text != "=")
 	{
 		Var* arg = parse_apat(parser,in);
-		definition->arguments.push_back(arg->id);
+		function->arguments.push_back(arg->id);
 	}
 	parser.next(in);
 	Node* expr = parse_expr(parser, in);
 	if (parser.token.type != TT_SEMI)
 		throw Error(line_number,"semicolon expected");
 	parser.next(in);
-	definition->body = expr;
+	function->body = expr;
+	definition->defineable = function;
 	cout << "Defined: " << definition->id << endl;
 	return definition;
 }
@@ -690,6 +803,30 @@ Definitions parse_definitions(Parser& parser, istream& in)
 	}
 
 	return definitions;
+}
+void output_function_prototype(ostream& out, Definition& definition)
+{
+	definition.defineable->output_function_prototype(out, definition.id);
+}
+void output_function_info(ostream& out, Definition& definition)
+{
+	definition.defineable->output_function_info(out, definition.id);
+}
+void output_function_definition(ostream& out, Definition& definition)
+{
+	definition.defineable->output_function_definition(out, definition.id);
+}
+void output_code(Definitions& definitions)
+{
+	// output function prototypes
+	// output info for each function
+	// output function definitions
+	for (auto definition: definitions)
+		output_function_prototype(cout, *definition);
+	for (auto definition: definitions)
+		output_function_info(cout, *definition);
+	for (auto definition: definitions)
+		output_function_definition(cout, *definition);
 }
 int main(int argc, char** argv)
 {
