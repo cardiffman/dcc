@@ -10,22 +10,31 @@
 #include <vector>
 #include <list>
 #include <algorithm>
+#include <sstream>
+#include <map>
+#include <iomanip>
 #include <stdlib.h>
 #include <string.h>
+
+#define LOG(fmt) cout << __PRETTY_FUNCTION__ << ": " << fmt << " : " << __FILE__ << ":" << __LINE__ << endl
 
 using namespace std;
 static vector<int> indented;
 
 enum TokenType {
-	TT_VARID, TT_CONID, TT_INTEGER, TT_DOUBLE, TT_STRING, TT_OPER, TT_DATA,
+	TT_VARID, TT_CONID, TT_INTEGER, TT_DOUBLE, TT_STRING, TT_OPER,
+	TT_DATA, TT_CASE, TT_OF, TT_ARROW_TO, TT_ARROW_FROM,
 	TT_LPAREN, TT_RPAREN,
+	TT_EQUALS,
 	TT_SEMI, TT_INDENT, TT_OUTDENT,
 	TT_EOF
 };
 const char* TokenTypeStr[] =
 {
 	"TT_VARID", "TT_CONID", "TT_INTEGER", "TT_DOUBLE", "TT_STRING", "TT_OPER",
-	"TT_LPAREN", "TT_RPAREN", "TT_DATA",
+	"TT_DATA", "TT_CASE", "TT_OF", "TT_ARROW_TO", "TT_ARROW_FROM",
+	"TT_LPAREN", "TT_RPAREN",
+	"TT_EQUALS",
 	"TT_SEMI", "TT_INDENT", "TT_OUTDENT",
 	"TT_EOF"
 };
@@ -213,6 +222,8 @@ bool ExplicitBlocking(istream& in, Token&)
  * then one is needed and should be inferred.
  * Second rule is, don't infer a semicolon if a left paren has not been
  * matched with a right paren.
+ * Third rule is, certain operators such as '=' and '->' are binary and
+ * therefore need to prevent a semicolon right next to them.
  * Additionally, blank lines after a semicolon don't call for inferred
  * semicolons.
  * This system may do things redundantly. The alternative would be
@@ -225,15 +236,15 @@ bool InferSemicolons(istream& in, Token& inferred)
 	 * may be time for a semicolon. If the last token off
 	 * the line was a semicolon, then one is not needed.
 	 */
-	enum { BLANK, NEED_SEMI, HAD_SEMI };
+	enum { BLANK, NEED_SEMI, HAD_SEMI, HAD_OPERATOR };
 	static int semi_status = BLANK;
 	static int parens = 0;
-	//cout << "Entry semi_status = " << (semi_status==BLANK?"BLANK":(semi_status==NEED_SEMI?"NEED_SEMI":"HAD_SEMI")) << endl;
+	//LOG("Entry semi_status = " << (semi_status==BLANK?"BLANK":(semi_status==NEED_SEMI?"NEED_SEMI":"HAD_SEMI")));
 	while (in.good())
 	{
 		while (lastline.size()==0 && in.good())
 		{
-			//cout << "EOL semi_status = " << (semi_status==BLANK?"BLANK":(semi_status==NEED_SEMI?"NEED_SEMI":"HAD_SEMI")) << endl;
+			//LOG("EOL semi_status = " << (semi_status==BLANK?"BLANK":(semi_status==NEED_SEMI?"NEED_SEMI":"HAD_SEMI")));
 			if (semi_status == NEED_SEMI && parens==0)
 			{
 				inferred = Token(TT_SEMI);
@@ -257,7 +268,7 @@ bool InferSemicolons(istream& in, Token& inferred)
 				if (lastline.size()<3 || lastline[2]=='-' || !ascSymbol(lastline[2]))
 				{
 					lastline.clear();
-					//cout << "comment semi_status = " << (semi_status==BLANK?"BLANK":(semi_status==NEED_SEMI?"NEED_SEMI":"HAD_SEMI")) << endl;
+					//LOG("comment semi_status = " << (semi_status==BLANK?"BLANK":(semi_status==NEED_SEMI?"NEED_SEMI":"HAD_SEMI")));
 					if (semi_status == NEED_SEMI && parens==0)
 					{
 						inferred = Token(TT_SEMI);
@@ -266,13 +277,13 @@ bool InferSemicolons(istream& in, Token& inferred)
 					continue;
 				}
 			}
-			//cout << "Non-EOL (" << lastline << ") semi_status = " << (semi_status==BLANK?"BLANK":(semi_status==NEED_SEMI?"NEED_SEMI":"HAD_SEMI")) << endl;
+			//LOG("Non-EOL (" << lastline << ") semi_status = " << (semi_status==BLANK?"BLANK":(semi_status==NEED_SEMI?"NEED_SEMI":"HAD_SEMI")));
 			break;
 		}
 		else
 		{
 			lastline.clear();
-			//cout << "EOL semi_status = " << (semi_status==BLANK?"BLANK":(semi_status==NEED_SEMI?"NEED_SEMI":"HAD_SEMI")) << endl;
+			//LOG("EOL semi_status = " << (semi_status==BLANK?"BLANK":(semi_status==NEED_SEMI?"NEED_SEMI":"HAD_SEMI")));
 			if (in.good() && semi_status == NEED_SEMI && parens==0)
 			{
 				inferred = Token(TT_SEMI);
@@ -291,6 +302,10 @@ bool InferSemicolons(istream& in, Token& inferred)
 	{
 		parens--;
 		semi_status = NEED_SEMI;
+	}
+	else if (lastline[0]=='=')
+	{
+		semi_status = HAD_OPERATOR;
 	}
 	else
 		semi_status = NEED_SEMI;
@@ -330,6 +345,10 @@ Token getToken(istream& in)
 		id.text = lastline.substr(0,nname);
 		if (id.text == "data")
 			id = Token(TT_DATA);
+		else if (id.text == "case")
+			id = Token(TT_CASE);
+		else if (id.text == "of")
+			id = Token(TT_OF);
 		lastline.erase(0,nname);
 		return id;
 	}
@@ -414,6 +433,12 @@ Token getToken(istream& in)
 		Token oper(TT_OPER);
 		oper.text = lastline.substr(0,nchrs);
 		lastline.erase(0,nchrs);
+		if (oper.text == "=")
+			oper.type = TT_EQUALS;
+		else if (oper.text == "->")
+			oper.type = TT_ARROW_TO;
+		else if (oper.text == "<-")
+			oper.type = TT_ARROW_FROM;
 		return oper;
 	}
 	throw Error(line_number, string("bad chrs ")+lastline);
@@ -425,9 +450,57 @@ struct Parser {
 		token = getToken(in);
 	}
 };
+class Environment
+{
+public:
+	Environment(const vector<string>& args) : args(args) {}
+	void set_arguments(const vector<string>& args_) { args = args_; }
+	string lookup(const string& name) const;
+	void bind_reg(const string& name, int reg_id);
+private:
+	vector<string> args;
+	map<string, int> reg_ids;
+};
+void Environment::bind_reg(const string& name, int reg_id)
+{
+	reg_ids[name] = reg_id;
+}
+string c_id(const string& id)
+{
+	ostringstream r;
+	r << std::hex;// << std::setw(2);
+	for (auto pid: id)
+		if (isalnum(pid) || pid=='_')
+			r << pid;
+		else
+			r << (unsigned)pid;
+	return r.str();
+
+}
+string Environment::lookup(const string& name) const
+{
+	auto i_arg = find(args.begin(), args.end(), name);
+	ostringstream os;
+	if (i_arg != args.end())
+	{
+		auto index = distance(args.begin(), i_arg);
+		os << "args[" << index << ']';
+		//out << "    comp_t *e" << n << " = args[" << index << "]; /* " << id << "*/" << endl;
+	}
+	else
+	{
+		//out << "    comp_t *e" << n << " = &sc_" << id << "; /* " << id << "*/" <<endl;
+		auto i_reg_bind = reg_ids.find(name);
+		if (i_reg_bind != reg_ids.end())
+			os << "e" << (*i_reg_bind).second;
+		else
+			os << "&sc_" << c_id(name);
+	}
+	return os.str();
+}
 struct Node {
 	virtual ostream& print(ostream& out) const { return out; }
-	virtual int output_computation(ostream& out, int n, const vector<string>& env) { return n; }
+	virtual int output_computation(ostream& out, int n, const Environment& env) { return n; }
 	virtual ~Node() {}
 };
 ostream& operator<<(ostream& out, const Node& node)
@@ -438,25 +511,79 @@ struct Num : Node {
 	Num(int ivalue) : value(ivalue) {}
 	Num(double dvalue) : value(dvalue) {}
 	ostream& print(ostream& out) const { return out << value; }
-	int output_computation(ostream& out, int n, const vector<string>& env);
+	int output_computation(ostream& out, int n, const Environment& env);
 	double value;
 };
 struct Var : Node {
 	Var(const string& id) : id(id) {}
 	ostream& print(ostream& out) const { return out << id; }
-	int output_computation(ostream& out, int n, const vector<string>& env);
+	int output_computation(ostream& out, int n, const Environment& env);
 	string id;
 };
 struct Str : Node {
 	Str(const string& text) : text(text) {}
 	ostream& print(ostream& out) const { return out << '"' <<  text << '"'; }
-	int output_computation(ostream& out, int n, const vector<string>& env);
+	int output_computation(ostream& out, int n, const Environment& env);
 	string text;
 };
 struct Operator : Node {
 	Operator(const string& id) : id(id) {}
 	string id;
 	ostream& print(ostream& out) const { return out << id; }
+	int output_computation(ostream& out, int n, const Environment& env);
+};
+struct Ctor : Node {
+	Ctor(const string& id) : id(id) {}
+	string id; // Not Bool but True or False. Not List but Cons or Nil
+	vector<Node*> arguments;
+	int output_computation(ostream& out, int n, const Environment& env);
+	ostream& print(ostream& out) const
+	{
+		out << id;
+		auto iarg = arguments.begin();
+		for (;iarg != arguments.end();)
+		{
+			out << ' ';
+			out << **iarg; iarg++;
+		}
+		return out;
+	}
+};
+struct CtorPat : Node {
+	CtorPat(const string& id) : id(id) {}
+	string id; // Not Bool but True or False. Not List but Cons or Nil
+	vector<string> arguments;
+	int output_computation(ostream& out, int n, const Environment& env);
+	ostream& print(ostream& out) const
+	{
+		out << id;
+		auto iarg = arguments.begin();
+		for (;iarg != arguments.end();)
+		{
+			out << ' ';
+			out << *iarg; iarg++;
+		}
+		return out;
+	}
+};
+struct Case : Node {
+	Case(Node* scrutinee) : scrutinee(scrutinee) {}
+	Node* scrutinee;
+	struct PatExpr {
+		Node* pat;
+		Node* expr;
+	};
+	typedef list<PatExpr> PatExprs;
+	PatExprs patExprs;
+	int output_computation(ostream& out, int n, const Environment& env);
+	ostream& print(ostream& out) const
+	{
+		out << "case " << *scrutinee << " of { " << endl;
+		for (auto pat_expr: patExprs)
+			out << *pat_expr.pat << " -> " << *pat_expr.expr << ';' << endl;
+		out << "}" << endl;
+		return out;
+	}
 };
 struct Apply : Node {
 	// In many implementations of such things, an Apply node
@@ -475,7 +602,7 @@ struct Apply : Node {
 		if (paren) out << ')';
 		return out;
 	}
-	int output_computation(ostream& out, int n, const vector<string>& env);
+	int output_computation(ostream& out, int n, const Environment& env);
 	ostream& print(ostream& out) const
 	{
 		print_bracketed(out, to_apply);// out << *to_apply;
@@ -509,6 +636,7 @@ struct Constructor {
 	void output_function_prototype(ostream& out, const string& id) const;
 	void output_function_heading(ostream& out, const string& id) const;
 	void output_function_info(ostream& out, const string& id) const;
+	void output_function_definition(ostream& out, const string& id) const;
 };
 ostream& operator<<(ostream& out, const Constructor& constructor)
 {
@@ -575,9 +703,9 @@ ostream& Type::print(ostream& out) const
 	auto ictors = constructors.begin();
 	if (ictors != constructors.end())
 	{
-		out << *ictors++ << endl;
+		out << *ictors++ ;//<< endl;
 		for (; ictors != constructors.end(); ++ictors)
-			out << "  | " << *ictors << endl;
+			out << " | " << *ictors;
 	}
 	return out;
 }
@@ -593,6 +721,10 @@ void Constructor::output_function_info(ostream& out, const string& id) const
 {
 	out << "comp_t sc_" << id << " = { ctor_" << constructor << ", " << arguments.size() << "};" << endl;
 }
+void Constructor::output_function_definition(ostream& out, const string& id) const
+{
+
+}
 void Type::output_function_prototype(ostream& out, const string& id) const
 {
 	for (auto ctor : constructors)
@@ -603,10 +735,23 @@ void Type::output_function_prototype(ostream& out, const string& id) const
 }
 void Type::output_function_definition(ostream& out, const string& id) const
 {
+	out << "enum { " << endl;
+	for (auto ctor : constructors)
+	{
+		out << ctor.constructor << "," << endl;
+	}
+	out << "}; // " << id << endl;
 	for (auto ctor : constructors)
 	{
 		ctor.output_function_heading(out, ctor.constructor);
-		out << endl;
+		out << "{" << endl;
+		out << "    *result = constructor("<< ctor.constructor << ", " << ctor.arguments.size();
+		for (int arg=0; arg<ctor.arguments.size(); ++arg)
+			out << ", args["<<arg<<']';
+		out << ");" << endl;
+		//int n = ctor..output_function_definition(out, 0, arguments);
+		//out << "    *result = e" << n << ";" << endl;
+		out << "}" << endl;
 	}
 }
 void Type::output_function_info(ostream& out, const string& id) const
@@ -633,31 +778,22 @@ void Function::output_function_prototype(ostream& out, const string& id) const
 	output_function_heading(out, id);
 	out << ';' << endl;
 }
-int Var::output_computation(ostream& out, int n, const vector<string>& env)
+int Var::output_computation(ostream& out, int n, const Environment& env)
 {
-	auto lookup = find(env.begin(), env.end(), id);
-	if (lookup != env.end())
-	{
-		auto index = distance(env.begin(), lookup);
-		out << "    comp_t *e" << n << " = args[" << index << "]; /* " << id << "*/" << endl;
-	}
-	else
-	{
-		out << "    comp_t *e" << n << " = &sc_" << id << "; /* " << id << "*/" <<endl;
-	}
+	out << "    comp_t *e" << n << " = " << env.lookup(id)<<"; /* " << id << "*/" << endl;
 	return n;
 }
-int Str::output_computation(ostream& out, int n, const vector<string>& env)
+int Str::output_computation(ostream& out, int n, const Environment& env)
 {
 	out << "    comp_t *e" << n << " = str(\"" << text << "\");" << endl;
 	return n;
 }
-int Num::output_computation(ostream& out, int n, const vector<string>& env)
+int Num::output_computation(ostream& out, int n, const Environment& env)
 {
-	out << "    *e" << n << " = num(" << value << ");" << endl;
+	out << "    comp_t *e" << n << " = num(" << value << ");" << endl;
 	return n;
 }
-int Apply::output_computation(ostream& out, int n, const vector<string>& env)
+int Apply::output_computation(ostream& out, int n, const Environment& env)
 {
 	vector<int> comps;
 	for (int i=0; i<arguments.size(); ++i)
@@ -667,11 +803,96 @@ int Apply::output_computation(ostream& out, int n, const vector<string>& env)
 		++n;
 	}
 	int nfunc = to_apply->output_computation(out, n, env);
-	out << "    *e" << n+1 << " = app(e" << nfunc << ", " << arguments.size();
+	out << "    comp_t *e" << n+1 << " = app(e" << nfunc << ", " << arguments.size();
 	for (auto comp : comps)
 		out << ", e" << comp;
 	out << ");" << endl;
 	return nfunc+1;
+}
+int Operator::output_computation(ostream& out, int n, const Environment& env)
+{
+	out << "    comp_t *e" << n << " = " << env.lookup(id)<<"; /* " << id <<" (" << c_id(id) << ") */" << endl;
+	return n;
+}
+int Ctor::output_computation(ostream& out, int n, const Environment& env)
+{
+	vector<int> comps;
+	for (int i=0; i<arguments.size(); ++i)
+	{
+		n = arguments[i]->output_computation(out, n, env);
+		comps.push_back(n);
+		++n;
+	}
+	out << "    *e" << n+1 << " = ctor(" << id << ", " << arguments.size();
+	for (auto comp : comps)
+		out << ", e" << comp;
+	out << ");" << endl;
+	return n+1;
+}
+int CtorPat::output_computation(ostream& out, int n, const Environment& env)
+{
+	vector<int> comps;
+	for (int i=0; i<arguments.size(); ++i)
+	{
+		//n = arguments[i]->output_computation(out, n, env);
+		out << "    *e" << n << " = " << env.lookup(arguments[i]) << "; // CTORPAT " << arguments[i] << endl;
+		comps.push_back(n);
+		++n;
+	}
+	out << "    *e" << n+1 << " = ctor(" << id << ", " << arguments.size();
+	for (auto comp : comps)
+		out << ", e" << comp;
+	out << ");" << endl;
+	return n+1;
+}
+int Case::output_computation(ostream& out, int n, const Environment& env)
+{
+	n = scrutinee->output_computation(out, 0, env);
+	out << "   e"<<n<<" = eval(e" << n << "); // force scrutinee" << endl;
+	int scrutinee_reg = n;
+	int result_reg = n+1;
+	out << "    comp_t* e"<<result_reg<<";"<<endl;
+	bool ifonly=true;
+	for (auto pat_expr : patExprs)
+	{
+		//if scrutinee_reg->tag == pat_expr.pat
+		Environment case_env = env;
+		out << "    ";
+		if (!ifonly)
+			out << "else ";
+		ifonly = false;
+		out <<"if (e" << scrutinee_reg << "->val.tag == ";
+		CtorPat* ctor_pat = dynamic_cast<CtorPat*>(pat_expr.pat);
+		int body_reg = scrutinee_reg + 2;
+		if (ctor_pat)
+		{
+			int pat_bind_reg = scrutinee_reg+2;
+			for (auto ctor_arg : ctor_pat->arguments)
+				case_env.bind_reg(ctor_arg, pat_bind_reg++);
+			body_reg = pat_bind_reg;
+			out << ctor_pat->id;
+			out << ") {" << endl;
+			pat_bind_reg = scrutinee_reg+2;
+			int ctor_arg_index = 0;
+			for (auto ctor_arg : ctor_pat->arguments)
+			{
+				out << "    comp_t* e" << pat_bind_reg << " = e" << scrutinee_reg
+										<< "->args[" << ctor_arg_index << "]; // " << ctor_arg << endl;
+				pat_bind_reg++;
+				ctor_arg_index++;
+			}
+		}
+		else
+		{
+			out << *pat_expr.pat;
+			out << ") {" << endl;
+		}
+		//n = pat_expr.pat->output_computation(out, scrutinee_reg+1, env);
+		n = pat_expr.expr->output_computation(out, body_reg, case_env);
+		out << "    e"<<result_reg << " = e" << n << ';'<< endl;
+		out << "    }" << endl;
+	}
+	return result_reg;
 }
 void Function::output_function_definition(ostream& out, const string& id) const
 {
@@ -734,9 +955,45 @@ Node* parse_oper(Parser& parser, istream& in)
 	}
 	return nullptr;
 }
-Var* parse_apat(Parser& parser, istream& in)
+Node* parse_apat(Parser& parser, istream& in)
 {
-	return parse_var(parser,in);
+	Node* apat = parse_var(parser,in);
+	if (!apat)
+	{
+		Var* conid = parse_con(parser,in);
+		if (conid)
+		{
+			//LOG(parser.token);
+			vector<Node*> arguments;
+			vector<string> names;
+			for (Node* argpat = parse_apat(parser, in);
+					argpat != nullptr;
+					argpat = parse_apat(parser, in))
+			{
+				arguments.push_back(argpat);
+				auto varpat = dynamic_cast<Var*>(argpat);
+				if (varpat)
+					names.push_back(varpat->id);
+				//LOG(parser.token);
+			}
+			//LOG(parser.token);
+			//if (arguments.size())
+			if (names.size() == arguments.size())
+			{
+
+				CtorPat* ctor = new CtorPat(conid->id);
+				ctor->arguments = names;
+				apat = ctor;
+			}
+			else
+			{
+				Ctor* ctor = new Ctor(conid->id);
+				ctor->arguments = arguments;
+				apat = ctor;
+			}
+		}
+	}
+	return apat;
 }
 /*
  * Let's go to the Haskell reference to be consistent
@@ -780,22 +1037,86 @@ Var* parse_apat(Parser& parser, istream& in)
  *        # This is where syntax sugar for tuples and lists goes too.
  * alts = alt ( ';' alt )*
  * alt = pat -> exp whereclause?
+ * pat = lpat
+ * lpat = apat
+ *      | '-' (integer|float)
+ *      | gcon apat+
+ * apat = var
+ *      | gcon
+ *      | literal
+ *      | '_'
+ *      | '(' pat ')'
+ *      | '(' pat+ ')'
+ *      | '[' pat+ ']'
  * qvar = qvarid
  * qvarid = qual? varid
  * qual = modid '.' # That is, a qualifier is a string of conids with periods. Prelude.Data.
  * modid = qual* conid
  *
+ * gcon = '(' ')'
+ *        | '[' ']'
+ *        | '(' ','+ ')'
+ *        | qcon
+ * qcon = qconid
+ *        | '(' qconsym ')'
+ * qconid = qual? conid
+ * qconsym = qual? consym
+ *
  * One form of expression that conforms to the above and is easier to parse is
  * exp = apply
  *      | var
  *      | literal
+ *      | conapply
  *      | '(' exp ')'
  * apply = var | '(' exp ')' exp*
+ * conapply = conid exp*
  */
 Node* parse_expr(Parser& parser, istream& in);
+Node* parse_case(Parser& parser, istream& in)
+{
+	//LOG("Hi! case statement");
+	parser.next(in);
+	//LOG(parser.token);
+	Node* scrutinee = parse_expr(parser,in);
+	if (parser.token.type != TT_OF)
+		throw Error(line_number, "case expr should have 'of'");
+	parser.next(in);
+	//LOG(parser.token);
+	if (parser.token.text != "{")
+		throw Error(line_number, "case expr of should have '{'");
+	parser.next(in);
+	//LOG(parser.token);
+
+	Case* case_node = new Case(scrutinee);
+	while (parser.token.text != "}")
+	{
+		Case::PatExpr pat_expr;
+		pat_expr.pat = parse_apat(parser,in);
+		//LOG(parser.token);
+		if (parser.token.text != "->")
+			throw Error(line_number, "case expr of { pat should have '->'");
+		parser.next(in);
+		//LOG(parser.token);
+		pat_expr.expr = parse_expr(parser, in);
+		//LOG(parser.token);
+		case_node->patExprs.push_back(pat_expr);
+		if (parser.token.text == "}")
+			break;
+		if (parser.token.type == TT_SEMI)
+			parser.next(in);
+		else
+			throw Error(line_number, "case expr of { pat -> expr should have ';'");
+		//LOG(parser.token);
+	}
+	if (parser.token.text != "}")
+		throw Error(line_number, "case expr of { pat->expr ... should end with '}'");
+	parser.next(in);
+	return case_node;
+}
 Node* parse_primary(Parser& parser, istream& in)
 {
 	Node* primary;
+	//LOG(parser.token);
 	if (parser.token.type == TT_LPAREN)
 	{
 		parser.next(in);
@@ -804,6 +1125,10 @@ Node* parse_primary(Parser& parser, istream& in)
 			throw Error(line_number,"left '(' not matched");
 		parser.next(in);
 	}
+	else if (parser.token.type == TT_CASE)
+	{
+		primary = parse_case(parser, in);
+	}
 	else
 		primary = parse_var(parser,in);
 	if (!primary) // an application could be an id but isn't always
@@ -811,22 +1136,25 @@ Node* parse_primary(Parser& parser, istream& in)
 	if (!primary)
 		primary = parse_oper(parser,in);
 	if (!primary)
-		throw Error(line_number,"Expected variable, constructor or operator");
+		throw Error(line_number,string("[937] Expected variable, constructor or operator ")+TokenTypeStr[parser.token.type]);
 	return primary;
 }
 Node* parse_expr(Parser& parser, istream& in)
 {
+	//LOG(parser.token);
 	Node* literal = parse_literal(parser, in);
 	if (literal)
 		return literal; // A literal cannot be applied as a function
+
+	//LOG(parser.token);
 	Node* apply = parse_primary(parser,in);
 	vector<Node*> arguments;
-	while (parser.token.type != TT_SEMI && parser.token.type != TT_RPAREN && parser.token.type != TT_EOF)
+	while (parser.token.type != TT_SEMI && parser.token.type != TT_RPAREN && parser.token.type != TT_OF && parser.token.text != "}" && parser.token.type != TT_EOF)
 	{
 		Node* argument = parse_literal(parser,in);
-		if (!argument)
-			argument = parse_primary(parser,in);
-		//cout << "An argument " << *argument << endl;
+		if (!argument) { 		//LOG(parser.token);
+			argument = parse_primary(parser,in); }
+		//LOG("An argument " << *argument);
 		if (argument)
 			arguments.push_back(argument);
 	}
@@ -848,7 +1176,7 @@ Definition* parse_data(Parser& parser, istream& in)
 	Type* type = new Type();
 	while (parser.token.text != "=")
 	{
-		Var* arg = parse_apat(parser,in);
+		Var* arg = parse_var(parser,in);
 		type->arguments.push_back(arg->id);
 	}
 	parser.next(in);
@@ -859,7 +1187,7 @@ Definition* parse_data(Parser& parser, istream& in)
 		ctor->constructor = conid->id;
 		while (parser.token.type != TT_SEMI && parser.token.text != "|")
 		{
-			Var* apat = parse_apat(parser, in);
+			Var* apat = parse_var(parser, in);
 			ctor->arguments.push_back(apat->id);
 		}
 		type->constructors.push_back(*ctor);
@@ -872,35 +1200,43 @@ Definition* parse_data(Parser& parser, istream& in)
 			break;
 		}
 	}
+	//LOG(parser.token);
 	parser.next(in);
-	cout << "Type " << *type << endl;
+	//LOG(parser.token);
+	//LOG("Type " << *type);
 	definition->defineable = type;
-	cout << "Defined: " << definition->id << endl;
+	//LOG("Defined: " << definition->id);
 	return definition;
 	//throw Error(line_number, "data keyword not implemented");
 }
 Definition* parse_function(Parser& parser, istream& in)
 {
+	//LOG(parser.token);
 	Var* name = parse_var(parser,in);
 	if (name == nullptr)
 		throw Error(line_number,"expecting varid (884)");
 	Definition* definition = new Definition();
 	definition->id = name->id;
 	Function* function = new Function();
-	//cout << "after name " << parser.token.text << endl;
+	//LOG("after name " << parser.token.text);
 	while (parser.token.text != "=")
 	{
-		Var* arg = parse_apat(parser,in);
+		//LOG(parser.token);
+		Var* arg = parse_var(parser,in);//parse_apat(parser,in);
+		if (arg == nullptr)
+			throw Error(line_number,"expecting varid (1227)");
 		function->arguments.push_back(arg->id);
 	}
+	//LOG(parser.token);
 	parser.next(in);
+	//LOG(parser.token);
 	Node* expr = parse_expr(parser, in);
 	if (parser.token.type != TT_SEMI)
 		throw Error(line_number,"semicolon expected");
 	parser.next(in);
 	function->body = expr;
 	definition->defineable = function;
-	cout << "Defined: " << definition->id << endl;
+	//LOG("Defined: " << definition->id);
 	return definition;
 }
 Definition* parse_definition(Parser& parser, istream& in)

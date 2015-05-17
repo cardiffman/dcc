@@ -1,0 +1,19 @@
+-- pseudo-flattened without let
+--digits n b = digits_mod (% n b) n b
+--  digits_mod mod n b = if (< n b) (Cons n Nil) (Cons mod (digits (/ (- n mod) b) b))
+
+--digit = (+ 48)
+--shownum_ base n = map digit (reverse (digits n base))
+--shownum = shownum_ 10
+main = shownum 54321
+
+
+--list<int> digits(int n, int b)
+--{
+--   if (n < b)
+--      return {n};
+--   else
+--      return {n % b, digits((n- n%b) / b, b)};
+--}
+--digits n b = dgits_mod (% n b) n b
+--  digits_mod mod n b if (< n b) Cons n Nil Cons mod (digits (- n mod) b)

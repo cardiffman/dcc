@@ -1,0 +1,164 @@
+-- Unit type
+data Unit a = Unit u
+
+-- Boolean
+data Boolean = False | True
+if cond then else = 
+   case cond of { True -> then; False -> else }
+not cond = 
+  case cond of { True -> False; False -> True }
+and cond1 cond2 = 
+  case cond1 of { True -> cond2; False -> False }
+or cond1 cond2 = 
+  case cond1 of { False -> cond2; True -> True }
+
+-- Maybe
+data Maybe a = None | Just x
+-- Apply fn f to what's in the Maye m. But if None, return d instead.
+maybe d f m = case m of { None -> d; Just x -> f x }
+-- mbind m f = m none f
+
+-- Nat
+--zero   z s = z
+--succ k z s = s k
+
+--pred k = k none just
+
+--plus  x y = y x (plus (succ x));
+--minus x y = y (just x) (minus_case_succ x);
+--  minus_case_succ x y' = x none (flip minus y');
+
+--eq x y = maybe false eq_case_just (minus x y);
+--  eq_case_just d = d true (const false);
+
+--lt x y = maybe true (const false) (minus x y);
+--ge x y = not (< x y);
+--gt = flip lt;
+--le = flip ge;
+
+--mult x y = y 0 (chain (plus x) (mult x));
+
+-- XXX divmod x 0 = nontermination
+--divmod x p = minus x p (pair 0 x) (divmod_case_just p);
+--  divmod_case_just p x' = divmod x' p divmod_case_pair;
+--  divmod_case_pair q r = pair (succ q) r;
+
+-- List
+data List = Nil | Cons x xs
+isnil xs = case xs of { Cons _ _ -> False; Nil -> True }
+map f lst = case lst of { Cons x xs -> Cons (f x) (map f xs); Nil -> Nil }
+fold f z xs = case xs of { Cons hd tl -> fold f Cons (f z hd) tl; Nil -> z }
+
+--fold f z xs = xs z (fold_case_cons f z);
+--  fold_case_cons f z x xs' = f x (fold f z xs');
+--foldl f z xs = xs z (chain (foldl f) (f z));
+--
+--filter f xs = xs xs (filter_case_cons f);
+--  filter_case_cons f x xs' = f x xs' (cons x (filter f xs'));
+
+--length = fold (const succ) 0;
+--length lst = fold count 0
+--count s x = + s 1
+
+
+--cat xs ys = fold cons ys xs;
+--cat lst1 lst2 = ??? fold Cons lst2 lst1
+
+
+--join sep = fold (join_1 sep) nil;
+--  join_1 sep x xs = if (isnil xs) x (cat (cat x sep) xs);
+--join sep lst = case lst of { Cons hd tl -> Cons Cons hd sep case tl of { Cons _ _ -> join sep tl; Nil -> Nil } }
+
+--concat = fold cat nil;
+--concatmap f = chain concat (map f);
+
+--replicate n x = n nil (chain (cons x) (flip replicate x));
+
+--reverse = foldl (flip cons) nil;
+--reverse lst = case lst of { Cons hd tl -> Cons (reverse tl) hd; Nil -> Nil }
+reverse lst = reverse2 lst Nil
+reverse2 lst acc = case lst of { Nil -> acc; Cons hd tl -> reverse2 tl (Cons hd  acc) }
+
+any p = fold (chain or p) False;
+--all p = fold (chain and p) true;
+
+in x = any (== x);
+
+--find eq x = fold (find_step eq x) none;
+--  find_step eq x y mi = if (eq x y) (just 0) (maybe none (chain just succ) mi);
+
+--eq_list eq xs ys = xs (isnil ys) (eq_list_case_cons eq ys);
+--  eq_list_case_cons eq ys x xs_ = ys false (eq_list_case_cons_cons eq x xs_);
+--  eq_list_case_cons_cons eq x xs_ y ys_ = and (eq x y) (eq_list eq xs_ ys_);
+--eq_str = eq_list eq;
+
+-- Pair
+--pair x y p = p x y;
+--fst xy = xy fst_case_pair;
+--  fst_case_pair x y = x;
+--snd xy = xy snd_case_pair;
+--  snd_case_pair x y = y;
+
+-- misc
+id x = x;
+const x y = x;
+flip f x y = f y x;
+chain f g x = f (g x);
+
+--uncurry f xy = xy f;
+--curry f x y = f (pair x y);
+
+--sap f x = seq x (f x);          -- force strict application
+--    -- NB: Interestingly 'sap' can also be used to _delay_ evaluation of 'f',
+--    -- like this:
+--    --     foo (sap f)
+--    -- The above is equivalent to 'foo f' but does not evaluate 'f' until it is
+--    -- applied to an argument.
+---- seq = builtin
+
+-- Characters
+--ch xs = xs 255 const;  -- string head XXX a hack until we have char literals
+
+isalpha c = or (and (> c 64) (< c 91)) (and (> c 96) (< c 123))
+isdigit c = and (>= c 48) (< c 58)
+isalnum c = or (isalpha c) (isdigit c)
+isprint c = and (>= c 32) (< c 127)
+isspace c = in c " \t\f\v\r\n"
+
+-- Show/Read
+--showstr s = cat (cat "\"" (concatmap showstr_esc s)) "\""
+--  showstr_esc c = (if (isprint c)      (cons c nil)
+--                   (if (== c (ch "\\")) "\\\\"
+--                   (if (== c (ch "\"")) "\\\""
+--                   (if (== c (ch "\a")) "\\a"
+--                   (if (== c (ch "\b")) "\\b"
+--                   (if (== c (ch "\t")) "\\t"
+--                   (if (== c (ch "\n")) "\\n"
+--                   (if (== c (ch "\v")) "\\v"
+--                   (if (== c (ch "\f")) "\\f"
+--                   (if (== c (ch "\r")) "\\r"
+--                   (if (== c (ch "\e")) "\\e"
+--                       (cat "\\" (showoct c)))))))))))));
+
+-- helper that converts integer into list of digits in reverse
+digits n b = digits_mod (% n b) n b
+  digits_mod mod n b = if (< n b) (Cons n Nil) (Cons mod (digits (/ (- n mod) b) b))
+
+-- helper that converts a digit value to a digit char
+digit = (+ 48)
+
+shownum = shownum_ 10
+showoct = shownum_ 8
+-- Convert number >= 0 to string
+shownum_ base n = map digit (reverse (digits n base))
+
+--readnum = foldl readnum_f 0;
+--  readnum_f acc digit = plus (mult acc 10) (atoi digit);
+--atoi d = maybe 0 id (minus d (ch "0"));
+
+-- IO
+-- standard file descriptors
+stdin  = 0;
+stdout = 1;
+stderr = 2;
+

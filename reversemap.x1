@@ -1,0 +1,5 @@
+
+digit = (+ 48)
+digits = Cons 1 (Cons 2 (Cons 3 (Cons 4 Nil)))
+main =  map digit (reverse digits)
+
