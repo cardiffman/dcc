@@ -24,7 +24,7 @@ static vector<int> indented;
 enum TokenType {
 	TT_VARID, TT_CONID, TT_INTEGER, TT_DOUBLE, TT_STRING, TT_OPER,
 	TT_DATA, TT_CASE, TT_OF, TT_ARROW_TO, TT_ARROW_FROM,
-	TT_LPAREN, TT_RPAREN,
+	TT_LPAREN, TT_RPAREN, TT_PIPE,
 	TT_EQUALS,
 	TT_SEMI, TT_INDENT, TT_OUTDENT,
 	TT_EOF
@@ -33,7 +33,7 @@ const char* TokenTypeStr[] =
 {
 	"TT_VARID", "TT_CONID", "TT_INTEGER", "TT_DOUBLE", "TT_STRING", "TT_OPER",
 	"TT_DATA", "TT_CASE", "TT_OF", "TT_ARROW_TO", "TT_ARROW_FROM",
-	"TT_LPAREN", "TT_RPAREN",
+	"TT_LPAREN", "TT_RPAREN", "TT_PIPE",
 	"TT_EQUALS",
 	"TT_SEMI", "TT_INDENT", "TT_OUTDENT",
 	"TT_EOF"
@@ -335,8 +335,13 @@ Token getToken(istream& in)
 		// names because in the future there will be constructors.
 		// I am not implementing qualified names because I'm not
 		// implementing modules.
+		// Currently I am recognizing # as a member of the set of
+		// characters that can be in a varid or conid, in order to
+		// play with emulating the Haskell magic hash feature.
+		// The character really belongs to the ascSymbol set, which
+		// is a subset of symbol.
 		//
-		size_t nname = lastline.find_first_not_of("abcdefghijklmnopqurstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789'",1);
+		size_t nname = lastline.find_first_not_of("abcdefghijklmnopqurstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789'#",1);
 		Token id;
 		if (isupper(lastline[0]))
 			id = Token(TT_CONID);
@@ -388,45 +393,43 @@ Token getToken(istream& in)
 		lastline.erase(0,k+1);
 		return str;
 	}
-	if (lastline[0]==';')
+	/*
+	 * Set special. These single characters are 1-character lexemes.
+	 * This group is special because they are single-character tokens,
+	 * unlike the ones below which a token can have a string of. Commas
+	 * are used to make lists and tuples. Backticks are used to turn a
+	 * function name into a binary operator, which would matter if the
+	 * syntax level has operator precedence instead of prefix notation.
+	 * (see varop in Haskell) Curly braces are used to bracket blocks of
+	 * declarations. We're not parsing such things right now.
+	 */
+	if (string("();,[]`{}").find(lastline[0]) != string::npos)
 	{
+		auto ch = lastline[0];
 		lastline.erase(0,1);
-		return Token(TT_SEMI);
-	}
-	if (lastline[0]=='(')
-	{
-		Token paren(TT_LPAREN);
-		paren.text = lastline.substr(0,1);
-		lastline.erase(0,1);
-		return paren;
-	}
-	if (lastline[0]==')')
-	{
-		Token paren(TT_RPAREN);
-		paren.text = lastline.substr(0,1);
-		lastline.erase(0,1);
-		return paren;
-	}
-	if (string(",[]`{}").find(lastline[0])!=string::npos)
-	{
-		// This group along with "();", is special because they are
-		// single-character tokens, unlike the ones below which a token
-		// can have a string of.
-		// Commas are used to make lists and tuples.
-		// Backticks are used to turn a function name into a binary
-		// operator, which would matter if the syntax level has operator
-		// precedence instead of prefix notation. (see varop in Haskell)
-		// {} are used to bracket blocks of declarations. We're not parsing
-		// such things right now.
+		switch (ch)
+		{
+		case '(': return Token(TT_LPAREN);
+		case ')': return Token(TT_RPAREN);
+		case ';': return Token(TT_SEMI);
+		default:
+			break;
+		}
 		Token oper(TT_OPER);
-		oper.text = lastline.substr(0,1);
-		lastline.erase(0,1);
+		oper.text = string(1,ch);
 		return oper;
 	}
-	// This bunch of characters consists of characters that can occur
-	// in sequences of any length. A few of the sequences are reserved,
-	// such as "->" and "..". "--" Is detected above and is used for the
-	// non-nested comment.
+	/*
+	 * Set symbol. This bunch of characters consists of characters that
+	 * can occur in sequences of any length. A few of the sequences are
+	 * reserved. These are:
+	 * .. : :: = \ | <- -> @ ~ =>
+	 * The sequence -- can start a non-nested comment, provided that
+	 * the third character of the sequence is not a symbol, because
+	 * those three characters would be the first three characters of a
+	 * varsym. The -- sequence followed by a nonsymbol is detected in
+	 * the indentation handler.
+	 */
 	size_t nchrs = lastline.find_first_not_of("!#$%&*+./<=>?@\\^|-~:");
 	if (nchrs != 0)
 	{
@@ -435,6 +438,8 @@ Token getToken(istream& in)
 		lastline.erase(0,nchrs);
 		if (oper.text == "=")
 			oper.type = TT_EQUALS;
+		else if (oper.text == "|")
+			oper.type = TT_PIPE;
 		else if (oper.text == "->")
 			oper.type = TT_ARROW_TO;
 		else if (oper.text == "<-")
@@ -711,7 +716,7 @@ ostream& Type::print(ostream& out) const
 }
 void Constructor::output_function_heading(ostream& out, const string& id) const
 {
-	out << "void ctor_" << constructor << ' ';
+	out << "void ctor_" << c_id(constructor) << ' ';
 	out << "(comp_t** result, comp_t** args) /*";
 	for (auto arg : arguments)
 		out << arg << " ";
@@ -719,7 +724,7 @@ void Constructor::output_function_heading(ostream& out, const string& id) const
 }
 void Constructor::output_function_info(ostream& out, const string& id) const
 {
-	out << "comp_t sc_" << id << " = { ctor_" << constructor << ", " << arguments.size() << "};" << endl;
+	out << "comp_t sc_" << c_id(id) << " = { ctor_" << c_id(constructor) << ", " << arguments.size() << "};" << endl;
 }
 void Constructor::output_function_definition(ostream& out, const string& id) const
 {
@@ -738,14 +743,14 @@ void Type::output_function_definition(ostream& out, const string& id) const
 	out << "enum { " << endl;
 	for (auto ctor : constructors)
 	{
-		out << ctor.constructor << "," << endl;
+		out << c_id(ctor.constructor) << "," << endl;
 	}
 	out << "}; // " << id << endl;
 	for (auto ctor : constructors)
 	{
 		ctor.output_function_heading(out, ctor.constructor);
 		out << "{" << endl;
-		out << "    *result = constructor("<< ctor.constructor << ", " << ctor.arguments.size();
+		out << "    *result = constructor("<< c_id(ctor.constructor) << ", " << ctor.arguments.size();
 		for (int arg=0; arg<ctor.arguments.size(); ++arg)
 			out << ", args["<<arg<<']';
 		out << ");" << endl;
@@ -847,7 +852,7 @@ int CtorPat::output_computation(ostream& out, int n, const Environment& env)
 }
 int Case::output_computation(ostream& out, int n, const Environment& env)
 {
-	n = scrutinee->output_computation(out, 0, env);
+	n = scrutinee->output_computation(out, n, env);
 	out << "   e"<<n<<" = eval(e" << n << "); // force scrutinee" << endl;
 	int scrutinee_reg = n;
 	int result_reg = n+1;
@@ -870,7 +875,7 @@ int Case::output_computation(ostream& out, int n, const Environment& env)
 			for (auto ctor_arg : ctor_pat->arguments)
 				case_env.bind_reg(ctor_arg, pat_bind_reg++);
 			body_reg = pat_bind_reg;
-			out << ctor_pat->id;
+			out << c_id(ctor_pat->id);
 			out << ") {" << endl;
 			pat_bind_reg = scrutinee_reg+2;
 			int ctor_arg_index = 0;
@@ -1093,7 +1098,7 @@ Node* parse_case(Parser& parser, istream& in)
 		Case::PatExpr pat_expr;
 		pat_expr.pat = parse_apat(parser,in);
 		//LOG(parser.token);
-		if (parser.token.text != "->")
+		if (parser.token.type != TT_ARROW_TO)
 			throw Error(line_number, "case expr of { pat should have '->'");
 		parser.next(in);
 		//LOG(parser.token);
@@ -1165,6 +1170,9 @@ Node* parse_expr(Parser& parser, istream& in)
 	application->arguments = arguments;
 	return application;
 }
+/*
+ *
+ */
 Definition* parse_data(Parser& parser, istream& in)
 {
 	parser.next(in);
@@ -1185,13 +1193,15 @@ Definition* parse_data(Parser& parser, istream& in)
 		Var* conid = parse_con(parser,in);
 		Constructor* ctor = new Constructor();
 		ctor->constructor = conid->id;
-		while (parser.token.type != TT_SEMI && parser.token.text != "|")
+		while (parser.token.type != TT_SEMI && parser.token.type != TT_PIPE)
 		{
 			Var* apat = parse_var(parser, in);
+			if (apat == nullptr)
+				throw Error(line_number, "expecting apat (1192)");
 			ctor->arguments.push_back(apat->id);
 		}
 		type->constructors.push_back(*ctor);
-		if (parser.token.text == "|")
+		if (parser.token.type == TT_PIPE)
 		{
 			parser.next(in);
 		}

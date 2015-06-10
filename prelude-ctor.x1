@@ -1,3 +1,7 @@
+-- Int
+data Int = MkInt# int;
+plus a b=case a of { MkInt# a# -> case b of { MkInt# b# -> MkInt# (+# a# b#) } }
+
 -- Unit type
 data Unit a = Unit u
 

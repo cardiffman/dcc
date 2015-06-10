@@ -134,6 +134,11 @@ void fun_2b(comp_t** r, comp_t** args) // +
     *r = num( (eval(args[0])->val.value + eval(args[1])->val.value) );
 }
 comp_t sc_2b = { fun_2b, 2 };
+void fun_2b23(comp_t** r, comp_t** args) // +#
+{
+    *r = num( (eval(args[0])->val.value + eval(args[1])->val.value) );
+}
+comp_t sc_2b23 = { fun_2b23, 2 };
 // helper: follow redirects until target object found
 // may return NULL during eval
 comp_t *follow(comp_t *v)
