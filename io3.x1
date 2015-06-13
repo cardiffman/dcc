@@ -1,0 +1,12 @@
+-- IO
+putstr s w = map (putstr_inner w) s
+putstr_inner w ch = putch ch w
+
+putch ch w = ccall putchar ch
+
+w = 0
+-- printnum x = putstr (map digit (digits x 10)) w
+printnum x = map put_digit (digits x 10)
+put_digit x = putch (digit x) w
+
+main = printnum 34567

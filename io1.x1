@@ -1,0 +1,9 @@
+-- IO
+putstr s w = map (putstr_inner w) s
+putstr_inner w ch = putch ch w
+
+putch ch w = ccall putchar ch
+
+w = 0
+main = putstr (cat "a string" "\n") w
+
