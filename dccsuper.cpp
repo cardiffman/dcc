@@ -626,6 +626,18 @@ struct Apply : Node {
 		return out;
 	}
 };
+struct Ccall : Node {
+	string c_id;
+	vector<Node*> arguments;
+	ostream& print(ostream& out) const
+	{
+		out << "ccall " << c_id;
+		for (auto arg : arguments)
+			out << ' ' << *arg;
+		return out;
+	}
+	int output_computation(ostream& out, int n, const Environment& env);
+};
 class Defineable {
 public:
 	virtual ~Defineable() {}
@@ -849,6 +861,18 @@ int CtorPat::output_computation(ostream& out, int n, const Environment& env)
 		out << ", e" << comp;
 	out << ");" << endl;
 	return n+1;
+}
+int Ccall::output_computation(ostream& out, int n, const Environment& env)
+{
+	vector<int> comps;
+	for (int i=0; i<arguments.size(); ++i)
+	{
+		n = arguments[i]->output_computation(out, n, env);
+		comps.push_back(n);
+		++n;
+	}
+	out << c_id << "(eval(e" << comps[0] << ")->val.value);" << endl;
+	return n-1;
 }
 int Case::output_computation(ostream& out, int n, const Environment& env)
 {
@@ -1118,9 +1142,35 @@ Node* parse_case(Parser& parser, istream& in)
 	parser.next(in);
 	return case_node;
 }
+Node* parse_primary(Parser& parser, istream& in);
+Ccall* parse_ccall(Parser& parser, istream& in)
+{
+	if (parser.token.text == "ccall")
+	{
+		parser.next(in);
+		Var* id = parse_var(parser,in);
+		if (!id)
+			id = parse_con(parser,in);
+		if (!id)
+			throw Error(line_number, "ccall requires an c function ID");
+		if (id->id=="putchar")
+		{
+			//LOG("");
+			Node* arg = parse_primary(parser, in);
+			Ccall* call = new Ccall();
+			call->c_id = id->id;
+			call->arguments.push_back(arg);
+			//LOG("");
+			return call;
+		}
+		else
+			throw Error(line_number, "ccall only works with a few c functions");
+	}
+	return nullptr;
+}
 Node* parse_primary(Parser& parser, istream& in)
 {
-	Node* primary;
+	Node* primary = nullptr;
 	//LOG(parser.token);
 	if (parser.token.type == TT_LPAREN)
 	{
@@ -1134,7 +1184,9 @@ Node* parse_primary(Parser& parser, istream& in)
 	{
 		primary = parse_case(parser, in);
 	}
-	else
+	if (!primary)
+		primary = parse_ccall(parser,in);
+	if (!primary)
 		primary = parse_var(parser,in);
 	if (!primary) // an application could be an id but isn't always
 		primary = parse_con(parser,in);
@@ -1224,7 +1276,7 @@ Definition* parse_function(Parser& parser, istream& in)
 	//LOG(parser.token);
 	Var* name = parse_var(parser,in);
 	if (name == nullptr)
-		throw Error(line_number,"expecting varid (884)");
+		throw Error(line_number,"expecting varid (1279)");
 	Definition* definition = new Definition();
 	definition->id = name->id;
 	Function* function = new Function();
