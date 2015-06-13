@@ -11,36 +11,12 @@ if cond then else =
    case cond of { True -> then; False -> else }
 not cond = 
   case cond of { True -> False; False -> True }
-and cond1 cond2 = 
-  case cond1 of { True -> cond2; False -> False }
-or cond1 cond2 = 
-  case cond1 of { False -> cond2; True -> True }
-
 -- Maybe
 data Maybe a = None | Just x
--- Apply fn f to what's in the Maye m. But if None, return d instead.
+-- Apply fn f to what's in the Maybe m. But if None, return d instead.
 maybe d f m = case m of { None -> d; Just x -> f x }
 -- mbind m f = m none f
 
--- Nat
---zero   z s = z
---succ k z s = s k
-
---pred k = k none just
-
---plus  x y = y x (plus (succ x));
---minus x y = y (just x) (minus_case_succ x);
---  minus_case_succ x y' = x none (flip minus y');
-
---eq x y = maybe false eq_case_just (minus x y);
---  eq_case_just d = d true (const false);
-
---lt x y = maybe true (const false) (minus x y);
---ge x y = not (< x y);
---gt = flip lt;
---le = flip ge;
-
---mult x y = y 0 (chain (plus x) (mult x));
 
 -- XXX divmod x 0 = nontermination
 --divmod x p = minus x p (pair 0 x) (divmod_case_just p);
@@ -50,24 +26,28 @@ maybe d f m = case m of { None -> d; Just x -> f x }
 -- List
 data List = Nil | Cons x xs
 isnil xs = case xs of { Cons _ _ -> False; Nil -> True }
-map f lst = case lst of { Cons x xs -> Cons (f x) (map f xs); Nil -> Nil }
-fold f z xs = case xs of { Cons hd tl -> fold f Cons (f z hd) tl; Nil -> z }
+-- The model definitions of 'and' and 'or' were binary operators.
+-- These follow Haskell in being reductions of lists of booleans.
+and xs =
+  case xs of { Cons hd tl -> if hd (and tl) False; Nil -> False }
+or xs =
+  case xs of { Cons hd tl -> if hd True (or tl); Nil -> True }
 
---fold f z xs = xs z (fold_case_cons f z);
---  fold_case_cons f z x xs' = f x (fold f z xs');
---foldl f z xs = xs z (chain (foldl f) (f z));
---
+map f lst = case lst of { Cons x xs -> Cons (f x) (map f xs); Nil -> Nil }
+-- Folds. For foldl, let z `f` x = x. For foldr, let x `f` z = x
+foldl f z xs = case xs of { Cons hd tl -> foldl f (f z hd) tl; Nil -> z }
+foldr f z xs = case xs of { Cons hd tl -> f hd (foldr f z tl); Nil -> z }
+
 --filter f xs = xs xs (filter_case_cons f);
 --  filter_case_cons f x xs' = f x xs' (cons x (filter f xs'));
 
 --length = fold (const succ) 0;
---length lst = fold count 0
---count s x = + s 1
+length = foldl length_acc 0
+length_acc s x = + s 1
 
 
 --cat xs ys = fold cons ys xs;
---cat lst1 lst2 = ??? fold Cons lst2 lst1
-
+cat xs ys = foldr Cons ys xs;
 
 --join sep = fold (join_1 sep) nil;
 --  join_1 sep x xs = if (isnil xs) x (cat (cat x sep) xs);
@@ -83,8 +63,8 @@ fold f z xs = case xs of { Cons hd tl -> fold f Cons (f z hd) tl; Nil -> z }
 reverse lst = reverse2 lst Nil
 reverse2 lst acc = case lst of { Nil -> acc; Cons hd tl -> reverse2 tl (Cons hd  acc) }
 
-any p = fold (chain or p) False;
---all p = fold (chain and p) true;
+any p xs = case xs of { Cons hd tl -> if (p hd) True (any p tl); Nil -> False }
+all p xs = case xs of { Cons hd tl -> if (p hd) (all p tl) False; Nil -> True }
 
 in x = any (== x);
 
