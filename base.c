@@ -176,28 +176,28 @@ comp_t *eval(comp_t *e) {
 void out(comp_t* r)
 {
 	//puts("out");
-  int i;
-  const char* types[] = {"sc","ref","val", "alg"};
-   switch (r->type) {
-	 default:
-   case ct_sc:
-   case ct_ref:
-			//printf("r %p r->type %s r->val.value %f\n", r, types[r->type], r->val.value);
-			r = eval(r);
-			out(r);
-			break;
-	 case ct_val:
-	    printf("r %p r->type %s r->val.value %f\n", r, types[r->type], r->val.value);
-	    break;
-	 case ct_alg:
-	    printf("r %p r->type %s r->val.tag %d r->applied %d\n", r, types[r->type], r->val.tag, r->applied);
-	    for (i=0; i<r->applied; ++i)
-	    {
-	      //puts("---");
-	      out(r->args[i]);
-	    }
-	    break;
-   }
+	int i;
+	const char* types[] = {"sc","ref","val", "alg"};
+	switch (r->type) {
+	default:
+	case ct_sc:
+	case ct_ref:
+		//printf("r %p r->type %s r->val.value %f\n", r, types[r->type], r->val.value);
+		r = eval(r);
+		out(r);
+		break;
+	case ct_val:
+		//fprintf(stderr,"r %p r->type %s r->val.value %f\n", r, types[r->type], r->val.value);
+		break;
+	case ct_alg:
+		//afprintf(stderr,"r %p r->type %s r->val.tag %d r->applied %d\n", r, types[r->type], r->val.tag, r->applied);
+		for (i=0; i<r->applied; ++i)
+		{
+			//puts("---");
+			out(r->args[i]);
+		}
+		break;
+	}
 }
 int main(int argc,const char** argv)
 {
@@ -205,6 +205,7 @@ int main(int argc,const char** argv)
   comp_t* r = app(&sc_main, 0);
   eval(r);
   r = follow(r);
-	printf("main: ");
+	fprintf(stderr,"main: \n");
 	out(r);
+	fflush(stdout);
 }
