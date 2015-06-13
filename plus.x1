@@ -1,0 +1,1 @@
+main = plus (MkInt# 5) (MkInt# 6);
